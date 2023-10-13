@@ -14,7 +14,8 @@ repository = "https://github.com/aleksandr-vin/marktplaats-gpt"
 python = "^3.10"
 python-dotenv = "^1.0"
 openai = "^0.28"
-marktplaats-messages = "^0.1"
+marktplaats-messages = "^0"
+beautifulsoup4 = "^4"
 
 
 [tool.poetry.scripts]
