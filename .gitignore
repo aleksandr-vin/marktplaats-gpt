@@ -1,0 +1,6 @@
+.env*
+.venv
+dist
+__pycache__
+marktplaats-gpt.log
+.cookies
