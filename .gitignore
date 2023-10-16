@@ -2,7 +2,7 @@
 .venv
 dist
 __pycache__
-marktplaats-gpt.log
+marktplaats-gpt*.log
 .cookies
 cache
 item.data

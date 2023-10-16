@@ -8,7 +8,8 @@ def load_item_data(item_id):
     Loads marktplaats item data by scraping the html page.
     """
 
-    response = requests.get(f'https://www.marktplaats.nl/{item_id}')
+    url = f'https://www.marktplaats.nl/{item_id}'
+    response = requests.get(url)
 
     response.raise_for_status()
     with open(f'cache/{item_id}.html', 'w') as file:
@@ -27,8 +28,8 @@ def load_item_data(item_id):
                     "price": j['offers']['price'],
                     "priceCurrency": j['offers']['priceCurrency'],
                 }
-                logging.info("Item %s data: %s", item_id, product)
-                return json.dumps(product)
+                logging.info("Item %s (%s) data: %s", item_id, url, product)
+                return json.dumps(product), url
         except e:
             logging.error(e)
 

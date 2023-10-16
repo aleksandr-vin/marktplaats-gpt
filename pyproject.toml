@@ -14,13 +14,14 @@ repository = "https://github.com/aleksandr-vin/marktplaats-gpt"
 python = "^3.10"
 python-dotenv = "^1.0"
 openai = "^0.28"
-marktplaats-messages = "^0"
+marktplaats-messages = "^0.2"
 beautifulsoup4 = "^4"
+python-telegram-bot = "^20.6"
 
 
 [tool.poetry.scripts]
 "marktplaats-gpt" = "marktplaats_gpt.main:main"
-
+"marktplaats-gpt-bot" = "marktplaats_gpt.bot:main"
 
 
 [tool.poetry.group.dev.dependencies]
