@@ -52,7 +52,10 @@ class UserSession:
         self.user_data['chatgpt_context'] = chatgpt_context
 
     def get_chatgpt_context(self):
-        return self.user_data['chatgpt_context']
+        if 'chatgpt_context' in self.user_data:
+            return self.user_data['chatgpt_context']
+        else:
+            return None
 
 
 def conversation_url(conversation_id):
@@ -254,7 +257,7 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     item_data = session.get_item_data()
     chatgpt_context = session.get_chatgpt_context()
-    if chatgpt_context == "":
+    if not chatgpt_context:
         chatgpt_context = load_context("chat-context")
     context = chatgpt_context + "\n" + item_data
     await update.message.reply_text(
