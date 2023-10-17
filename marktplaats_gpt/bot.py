@@ -19,6 +19,8 @@ from marktplaats_gpt.main import load_context
 from marktplaats_gpt.scraping import load_item_data
 from marktplaats_gpt.user_session import UserSession
 from marktplaats_gpt.users_db import UserDB
+from marktplaats_gpt.version_info import version as the_version
+
 
 CONVERSATION_NUMBER_PATTERN = r' \((\d*)\)$'
 
@@ -597,6 +599,10 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="You've just said " + update.message.text)
 
 
+async def version(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Version {the_version}")
+
+
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
 
@@ -660,6 +666,7 @@ def main():
     application.add_handler(CommandHandler('reset_cookie', reset_cookie))
     application.add_handler(CommandHandler('help', help))
     application.add_handler(CommandHandler('admin_help', admin_help))
+    application.add_handler(CommandHandler('version', version))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
 

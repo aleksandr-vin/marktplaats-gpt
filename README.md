@@ -149,3 +149,8 @@ Now restart the bot.
 As an admin you can activate users by their telegram usernames. Repeat same last command but provide your username, like `/activate yourfriend`.
 
 For more admin commands see `/admin_help`.
+
+### Interactive authenticating with Marktplaats
+
+When cookie will stale or if you or any of your users do not have cookies, they will need to perform an log-in in their browser and copy a request with *Copy as cURL*,
+then issue a command `/reset_cookie  ....` and paste the content of the paste buffer.
