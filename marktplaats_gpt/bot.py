@@ -392,7 +392,7 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     conversation_id = conv['id']
 
     item_data = session.get_item_data()
-    chatgpt_context = session.get_chatgpt_context()
+    chatgpt_context = UserDB.get(user.username, 'chat-context')
     if not chatgpt_context:
         chatgpt_context = load_context("chat-context")
     context = chatgpt_context + "\n" + item_data
@@ -474,10 +474,11 @@ async def context(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(context.args) == 0:
         text = load_context("chat-context")
+        UserDB.delete(user.username, 'chat-context')
     else:
         text = " ".join(context.args)
+        UserDB.set(user.username, 'chat-context', text)
     logging.info("New context for ChatGPT: %s", text)
-    session.set_chatgpt_context(text)
 
     await update.message.reply_text(
         "New context:\n\n"

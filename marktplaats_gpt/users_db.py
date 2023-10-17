@@ -30,6 +30,16 @@ class UserDB:
             conn.commit()
 
 
+    def delete(username: str, key: str):
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM user_settings WHERE username=? and setting_key=?",
+                (username, key)
+            )
+            conn.commit()
+
+
     def get(username: str, key: str) -> str:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()

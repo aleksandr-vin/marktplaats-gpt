@@ -26,12 +26,3 @@ class UserSession:
 
     def get_completion_messages(self):
         return self.user_data['completion_messages']
-
-    def set_chatgpt_context(self, chatgpt_context):
-        self.user_data['chatgpt_context'] = chatgpt_context
-
-    def get_chatgpt_context(self):
-        if 'chatgpt_context' in self.user_data:
-            return self.user_data['chatgpt_context']
-        else:
-            return None
