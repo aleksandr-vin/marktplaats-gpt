@@ -56,7 +56,7 @@ class UserSession:
 
 
 def conversation_url(conversation_id):
-    return "https://www.marktplaats.nl/messages/{conversation_id}"
+    return f"https://www.marktplaats.nl/messages/{conversation_id}"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
