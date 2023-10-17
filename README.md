@@ -52,7 +52,7 @@ python -m marktplaats_messages.cookie_awareness >> .env
 ```
 
 
-## Run
+## Run as a cli tool
 
 ### Listing conversations
 
@@ -113,3 +113,13 @@ Not replying in conversation (dry-run mode)
 ### Actually make a reply
 
 To make a reply, remove `--dry-run` option.
+
+## Run as a Telegram Bot
+
+You'll need to create a Telegram Bot for yourself first and get a token. Place it to *.env* file with such line:
+
+```
+TELEGRAM_TOKEN=.....
+```
+
+Then, assuming you run `poetry install`, you can run `marktplaats-gpt-bot` and watch the logs in *marktplaats-gpt-bot.log*.
