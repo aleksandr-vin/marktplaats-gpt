@@ -19,7 +19,7 @@ from marktplaats_gpt.scraping import load_item_data
 
 CONVERSATION_NUMBER_PATTERN = r' \((\d*)\)$'
 
-CONVERSATION = range(1)
+CONVERSATION, SUGGESTION = range(2)
 
 class UserSession:
     def __init__(self, user_data):
@@ -32,9 +32,39 @@ class UserSession:
         self.user_data['active_conversation'] = i
         return self.user_data['conversations'][i]
 
+    def get_active_conversation(self):
+        i = self.user_data['active_conversation']
+        return self.user_data['conversations'][i]
+
+    def set_item_data(self, item_data):
+        self.user_data['item_data'] = item_data
+
+    def get_item_data(self):
+        return self.user_data['item_data']
+
+    def set_completion_messages(self, completion_messages):
+        self.user_data['completion_messages'] = completion_messages
+
+    def get_completion_messages(self):
+        return self.user_data['completion_messages']
+
+    def set_chatgpt_context(self, chatgpt_context):
+        self.user_data['chatgpt_context'] = chatgpt_context
+
+    def get_chatgpt_context(self):
+        return self.user_data['chatgpt_context']
+
+
+def conversation_url(conversation_id):
+    return "https://www.marktplaats.nl/messages/{conversation_id}"
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the session, lists Marktplaats conversations and asks user which to pick up."""
+    user = update.message.from_user
+
+    logging.info(f"Starting user session for {user}")
+    session = UserSession(user_data=context.user_data)
 
     limit = 5
     offset = 0
@@ -58,9 +88,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         'limit': str(limit),
     })
 
-    user = update.message.from_user
-    logging.info(f"Starting user session for {user}")
-    session = UserSession(user_data=context.user_data)
     session.set_conversations(convs)
 
     logging.info(f"Listing {limit} newly-updated conversations (from {offset}):")
@@ -106,7 +133,7 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     user = update.message.from_user
 
     conversation_key_str = update.message.text
-    logging.info("Conversation key string for %s is %s", user.first_name, conversation_key_str)
+    logging.info("Conversation key string for %s is %s", user.id, conversation_key_str)
 
     matches = re.findall(CONVERSATION_NUMBER_PATTERN, conversation_key_str)
     if matches:
@@ -136,15 +163,8 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             reply_markup=ReplyKeyboardRemove(),
             parse_mode='HTML'
         )
+        session.set_item_data(item_data)
 
-    context = load_context("chat-context") + "\n" + item_data
-    await update.message.reply_text(
-        "<i>This will be the context for ChatGPT request:</i>\n"
-        f"<pre>{context}</pre>\n\n"
-        "Use /context to modify.\n",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode='HTML'
-    )
     c = Client()
 
     messages = c.get_conversation(conversation_id)
@@ -154,18 +174,15 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     else:
         messages_notice = ""
 
-    completion_messages=[
-        {
-            "role": "system",
-            # "content": "You are selling your item on marktplaats.nl. " +
-            #     "A potential buyer is asking questions. " +
-            #     "Answer questions and do not lower the price. " +
-            #     "Convince the buyer to buy it for defined price. " +
-            #     "All messages from 'user' are proxied buyers messages."
-            "content": context
-        },
-        #{"role": "user", "content": "Will you sell for 100?"},
-    ]
+    conv_url = conversation_url(conversation_id)
+    await update.message.reply_text(
+        f"Loading conversation with <b>{peer['name']}</b>\n"
+        f"<a href=\"{conv_url}\">{conv_url}</a>\n",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+    completion_messages=[]
 
     sorted_items = sorted(messages['_embedded']['mc:message'], key=lambda x: x['receivedDate'], reverse=False)
     last_message = sorted_items[-1]
@@ -192,17 +209,9 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             "content": m['text']
         })
 
+    session.set_completion_messages(completion_messages)
+
     messages_section = "\n\n".join(messages_list)
-
-    conv_url = f"https://www.marktplaats.nl/messages/{conversation_id}"
-
-    await update.message.reply_text(
-        f"Loading conversation with <b>{peer['name']}</b>\n"
-        f"<a href=\"{conv_url}\">{conv_url}</a>\n",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode='HTML'
-    )
-
     await update.message.reply_text(
         f"It has {messages['totalCount']} messages{messages_notice}:\n\n"
         f"{messages_section}",
@@ -210,31 +219,17 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         parse_mode='HTML'
     )
 
+    reply_keyboard = [["Yes", "No"]]
+
     if last_message['senderId'] == peer['id'] or args.conversation_continue:
         await update.message.reply_text(
-            "<i>Asking ChatGPT</i>",
-            reply_markup=ReplyKeyboardRemove(),
+            "<i>Asking ChatGPT?</i>",
+            reply_markup=ReplyKeyboardMarkup(
+                reply_keyboard, one_time_keyboard=True, input_field_placeholder="Ask ChatGPT for a suggestion?"
+            ),
             parse_mode='HTML'
         )
-        openai.organization = os.environ.get("OPENAI_ORG_ID")
-        openai.api_key = os.environ.get("OPENAI_API_KEY")
-        openai_model = "gpt-4"
-        logging.debug("About to ask ChatGPT %s model for completion to %s", openai_model, completion_messages)
-        completion = openai.ChatCompletion.create(model=openai_model, messages=completion_messages)
-        logging.debug("Usage: %s", completion.usage)
-        logging.debug("Choice: %s", completion.choices[0].message.content)
-        completion = completion.choices[0].message.content
-        await update.message.reply_text(
-            f"<i>Suggested answer:</i>\n",
-            reply_markup=ReplyKeyboardRemove(),
-            parse_mode='HTML'
-        )
-        await update.message.reply_text(
-            f"<pre>{completion}</pre>",
-            reply_markup=ReplyKeyboardRemove(),
-            parse_mode='HTML'
-        )
-        return ConversationHandler.END
+        return SUGGESTION
     else:
         await update.message.reply_text(
             "Last message was not from peer. No suggestions will be given for this conversation.",
@@ -242,6 +237,66 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             parse_mode='HTML'
         )
         return ConversationHandler.END
+
+
+async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Asks ChatGPT for reply suggestion for active conversation and sends to the user."""
+    user = update.message.from_user
+
+    if update.message.text != "Yes":
+        logging.info("Not asking ChatGPT, as user %s replied %s", user.id, update.message.text)
+        return ConversationHandler.END
+
+    session = UserSession(user_data=context.user_data)
+    conv = session.get_active_conversation()
+    logging.info('Active conv %s', conv)
+    conversation_id = conv['id']
+
+    item_data = session.get_item_data()
+    chatgpt_context = session.get_chatgpt_context()
+    if chatgpt_context == "":
+        chatgpt_context = load_context("chat-context")
+    context = chatgpt_context + "\n" + item_data
+    await update.message.reply_text(
+        "<i>This will be the context for ChatGPT request:</i>\n"
+        f"<pre>{context}</pre>\n\n"
+        "<i>Waiting for ChatGPT answer</i>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    
+    completion_messages = [{ "role": "system","content": context }] + session.get_completion_messages()
+
+    openai.organization = os.environ.get("OPENAI_ORG_ID")
+    openai.api_key = os.environ.get("OPENAI_API_KEY")
+    openai_model = os.environ.get("OPENAI_MODEL", "gpt-4")
+    logging.debug("About to ask ChatGPT %s model for completion to %s", openai_model, completion_messages)
+    completion = openai.ChatCompletion.create(model=openai_model, messages=completion_messages)
+    logging.debug("Usage: %s", completion.usage)
+    logging.debug("Choice: %s", completion.choices[0].message.content)
+    completion = completion.choices[0].message.content
+    await update.message.reply_text(
+        f"<i>Suggested answer:</i>\n",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    await update.message.reply_text(
+        f"<pre>{completion}</pre>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+    reply_keyboard = [["Yes"],["No"]]
+    await update.message.reply_text(
+        "<i>Asking ChatGPT to regenerate?</i>",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard, one_time_keyboard=True, input_field_placeholder="Ask ChatGPT for a new suggestion?"
+        ),
+        parse_mode='HTML'
+    )
+    return SUGGESTION
+
+    return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -255,13 +310,32 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+async def context(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset context to new text or to default one, if none provided."""
+    user = update.message.from_user
+    session = UserSession(user_data=context.user_data)
+
+    if len(context.args) == 0:
+        text = load_context("chat-context")
+    else:
+        text = " ".join(context.args)
+    logging.info("New context for ChatGPT: %s", text)
+    session.set_chatgpt_context(text)
+
+    await update.message.reply_text(
+        "New context:\n\n"
+        f"<pre>{text}</pre>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=get_help())
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="You've just said " + update.message.text)
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -271,6 +345,7 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_help():
     return """Available commands:
 /start -- Start the session, by listing all conversations first, optional parameters are LIMIT and OFFSET
+/context -- Reset the ChatGPT context, provide a new text or leave blank to load default
 /help -- Show this help
 """
 
@@ -295,11 +370,14 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             CONVERSATION: [MessageHandler(filters.Regex(".*"), conversation)],
+            SUGGESTION: [MessageHandler(filters.Regex("^(Yes|No)$"), suggestion)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     application.add_handler(conv_handler)
+
+    application.add_handler(CommandHandler('context', context))
 
     application.add_handler(CommandHandler('help', help))
 
