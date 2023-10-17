@@ -641,6 +641,9 @@ def main():
         filemode='a'
     )
 
+    # set higher logging level for httpx to avoid all GET and POST requests being logged
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     # Load environment variables from .env file
     load_dotenv()
 
