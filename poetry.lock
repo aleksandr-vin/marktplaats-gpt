@@ -474,6 +474,24 @@ files = [
 ]
 
 [[package]]
+name = "header-hunter"
+version = "0.1.0"
+description = "Python library for hunting HTTP headers"
+optional = false
+python-versions = "^3.10"
+files = []
+develop = false
+
+[package.dependencies]
+tk = "^0.1.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/aleksandr-vin/header-hunter.git"
+reference = "v0.1.0"
+resolved_reference = "149b715e21ee838f9c8bb3fcc7582462111324e1"
+
+[[package]]
 name = "httpcore"
 version = "0.18.0"
 description = "A minimal low-level HTTP client."
@@ -541,18 +559,21 @@ files = [
 
 [[package]]
 name = "marktplaats-messages"
-version = "0.2.0"
+version = "0.5.0"
 description = "Marktplaats Messages unofficial client"
 optional = false
-python-versions = "*"
+python-versions = "^3.10"
 files = []
 develop = false
+
+[package.dependencies]
+python-dotenv = "^1.0"
 
 [package.source]
 type = "git"
 url = "https://github.com/aleksandr-vin/marktplaats-messages.git"
-reference = "d811cf70101c27001fcb665bf6d6747757c1c913"
-resolved_reference = "d811cf70101c27001fcb665bf6d6747757c1c913"
+reference = "v0.5.0"
+resolved_reference = "09941377db68c55013046f8562c61c3bf2f3ba02"
 
 [[package]]
 name = "multidict"
@@ -825,6 +846,17 @@ files = [
 ]
 
 [[package]]
+name = "tk"
+version = "0.1.0"
+description = "TensorKit is a deep learning helper between Python and C++."
+optional = false
+python-versions = "*"
+files = [
+    {file = "tk-0.1.0-py3-none-any.whl", hash = "sha256:703a69ff0d5ba2bd2f7440582ad10160e4a6561595d33457dc6caa79b9bf4930"},
+    {file = "tk-0.1.0.tar.gz", hash = "sha256:60bc8923d5d35f67f5c6bd93d4f0c49d2048114ec077768f959aef36d4ed97f8"},
+]
+
+[[package]]
 name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
@@ -962,4 +994,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "00311f0b53465bbef102c57290acad6514bc4b3e8690de65f69f36c3d0acc7b9"
+content-hash = "2b3d82bc2a421b614f4d55d202b2755d2878364a1dc0640eefffde3e488ca3d9"

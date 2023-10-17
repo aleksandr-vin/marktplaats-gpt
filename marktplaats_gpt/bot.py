@@ -11,6 +11,8 @@ from telegram.ext import (
 from dotenv import load_dotenv
 import os
 from marktplaats_messages.client import Client
+from header_hunter.sniff import sniff_cookie_from_text
+from header_hunter.store import store_value
 import re
 import openai
 from marktplaats_gpt.main import load_context
@@ -156,6 +158,40 @@ async def user_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     )
 
 
+async def load_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+
+    logging.warn("User %s called /load_cookie %s", user, context.args)
+    
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    cookie = os.environ.get("COOKIE")
+    if cookie:
+        UserDB.set(user.username, 'cookie', cookie)
+        logging.info("User %s set new cookie", user)
+        await update.message.reply_text(
+            "New cookie:\n\n"
+            f"<pre>{cookie}</pre>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+    else:
+        logging.info("No COOKIE env var found", user)
+        await update.message.reply_text(
+            "No COOKIE env var found",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+
+
 async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
 
@@ -204,7 +240,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logging.error(e)
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"I didn't get second (OFFSET) argument for the command. {e}")
 
-    c = Client()
+    cookie = UserDB.get(user.username, 'cookie')
+    if not cookie:
+        await update.message.reply_text(
+            f"No cookie found, set cookie with /reset_cookie.",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    c = Client(load_env=False, use_jar=False, cookie=cookie)
 
     convs = c.get_conversations(params = {
         'offset': str(offset),
@@ -296,7 +340,15 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         session.set_item_data(item_data)
 
-    c = Client()
+    cookie = UserDB.get(user.username, 'cookie')
+    if not cookie:
+        await update.message.reply_text(
+            f"No cookie found, set cookie with /reset_cookie.",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    c = Client(load_env=False, use_jar=False, cookie=cookie)
 
     messages = c.get_conversation(conversation_id)
     peer = messages['_embedded']['otherParticipant']
@@ -488,6 +540,49 @@ async def context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def reset_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset cookie to new value."""
+    user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
+    if len(context.args) == 0:
+        UserDB.delete(user.username, 'cookie')
+        logging.info("User %s deleted cookie", user)
+        await update.message.reply_text(
+                "Cookie deleted",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+    else:
+        text = " ".join(context.args)
+        cookie = store_value(sniff_cookie_from_text(text))
+        if cookie:
+            UserDB.set(user.username, 'cookie', cookie)
+            logging.info("User %s set new cookie", user)
+            await update.message.reply_text(
+                "New cookie:\n\n"
+                f"<pre>{cookie}</pre>",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+        else:
+            logging.info("User %s did not provide new cookie", user)
+            logging.debug("User %s provided: %s", text)
+            await update.message.reply_text(
+                "No new cookie found in:\n\n"
+                f"<pre>{text}</pre>",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+
+
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
 
@@ -515,6 +610,7 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_help():
     return """Available commands:
 /start -- start the session, by listing all conversations first, optional parameters are LIMIT and OFFSET
+/reset_cookie -- set your marktplaats.nl cookie (can parse the result of "Copy as cURL" browser command) or delete current one if nothing is provided
 /context -- reset the ChatGPT context, provide a new text or leave blank to load default
 /help -- show this help
 """
@@ -524,6 +620,7 @@ def get_admin_help():
 /activate {username} -- activate user by {username}
 /deactivate {username} -- deactivate user by {username}
 /user_settings {username} -- show settings for {username}
+/load_cookie -- load cookie for bot's COOKIE env var into admin's settings
 /admin_help -- show this help
 """
 
@@ -557,8 +654,10 @@ def main():
     application.add_handler(CommandHandler('activate', activate))
     application.add_handler(CommandHandler('deactivate', deactivate))
     application.add_handler(CommandHandler('user_settings', user_settings))
+    application.add_handler(CommandHandler('load_cookie', load_cookie))
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler('context', context))
+    application.add_handler(CommandHandler('reset_cookie', reset_cookie))
     application.add_handler(CommandHandler('help', help))
     application.add_handler(CommandHandler('admin_help', admin_help))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
