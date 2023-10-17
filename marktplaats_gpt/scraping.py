@@ -34,4 +34,4 @@ def load_item_data(item_id):
             logging.error(e)
 
     logging.warn("No product information found")
-    return None
+    return None, url

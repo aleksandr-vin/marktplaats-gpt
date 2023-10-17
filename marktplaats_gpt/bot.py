@@ -21,18 +21,16 @@ CONVERSATION_NUMBER_PATTERN = r' \((\d*)\)$'
 
 CONVERSATION = range(1)
 
-sessions = {}
-
 class UserSession:
-    def __init__(self, user, conversations):
-        self.user = user
-        self.conversations = conversations
+    def __init__(self, user_data):
+        self.user_data = user_data
 
-    def set_active_conversation(self, i):
-        self.active_conversation = self.conversations['_embedded']['mc:conversations'][i]
+    def set_conversations(self, conversations):
+        self.user_data['conversations'] = conversations['_embedded']['mc:conversations']
 
-    def get_active_conversation(self):
-        return self.active_conversation
+    def activate_conversation(self, i):
+        self.user_data['active_conversation'] = i
+        return self.user_data['conversations'][i]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -62,10 +60,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     user = update.message.from_user
     logging.info(f"Starting user session for {user}")
-    session = UserSession(user=user, conversations=convs)
-    sessions[user] = session
-
-    context.user_data["conversations"] = convs
+    session = UserSession(user_data=context.user_data)
+    session.set_conversations(convs)
 
     logging.info(f"Listing {limit} newly-updated conversations (from {offset}):")
 
@@ -108,7 +104,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Prints conversation and suggests a reply."""
     user = update.message.from_user
-    session = sessions[user]
 
     conversation_key_str = update.message.text
     logging.info("Conversation key string for %s is %s", user.first_name, conversation_key_str)
@@ -121,17 +116,26 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that.")
         return ConversationHandler.END
 
-    session.set_active_conversation(conversation_number)
-    conv = session.get_active_conversation()
+    session = UserSession(user_data=context.user_data)
+    conv = session.activate_conversation(conversation_number)
+    logging.info('Conv %d: %s', conversation_number, conv)
     conversation_id = conv['id']
     item_id = conv["itemId"]
 
     item_data, url = load_item_data(item_id)
-    await update.message.reply_text(
-        f"<i>Reading <a href=\"{url}\">{url}</a></i>\n",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode='HTML'
-    )
+    if not item_data:
+        await update.message.reply_text(
+            f"<i>Didn't find product description at <a href=\"{url}\">{url}</a></i>.",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text(
+            f"<i>Reading <a href=\"{url}\">{url}</a></i>\n",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
 
     context = load_context("chat-context") + "\n" + item_data
     await update.message.reply_text(
@@ -181,7 +185,7 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             read_status = '* '
         messages_list.append(
             f"<i>[{m['receivedDate']}]</i> {read_status}<b>{author}:</b>\n"
-            "<pre>{m['text']}</pre>"
+            f"<pre>{m['text']}</pre>"
         )
         completion_messages.append({
             "role": role,
@@ -190,8 +194,17 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     messages_section = "\n\n".join(messages_list)
 
+    conv_url = f"https://www.marktplaats.nl/messages/{conversation_id}"
+
     await update.message.reply_text(
-        f"Conversation with <b>{peer['name']}</b> has {messages['totalCount']} messages{messages_notice}:\n\n"
+        f"Loading conversation with <b>{peer['name']}</b>\n"
+        f"<a href=\"{conv_url}\">{conv_url}</a>\n",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+    await update.message.reply_text(
+        f"It has {messages['totalCount']} messages{messages_notice}:\n\n"
         f"{messages_section}",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode='HTML'
@@ -199,7 +212,7 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     if last_message['senderId'] == peer['id'] or args.conversation_continue:
         await update.message.reply_text(
-            "<i>Waiting for ChatGPT...</i>",
+            "<i>Asking ChatGPT</i>",
             reply_markup=ReplyKeyboardRemove(),
             parse_mode='HTML'
         )
@@ -212,8 +225,12 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         logging.debug("Choice: %s", completion.choices[0].message.content)
         completion = completion.choices[0].message.content
         await update.message.reply_text(
-            f"<i>Suggested answer:</i>\n"
-            "<pre>{completion}</pre>",
+            f"<i>Suggested answer:</i>\n",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        await update.message.reply_text(
+            f"<pre>{completion}</pre>",
             reply_markup=ReplyKeyboardRemove(),
             parse_mode='HTML'
         )
