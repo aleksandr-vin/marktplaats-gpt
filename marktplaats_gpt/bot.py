@@ -131,7 +131,7 @@ async def user_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if user_settings:
             settings_list = []
             for k,v in user_settings.items():
-                settings_list.append(f"{k}: {v}")
+                settings_list.append(f"[{v['modified_time']}] {k}: {v['value']}")
             logging.warn("Showing settings of user %s for %s", subject_user, user)
             settings_section = "\n".join(settings_list)
             await update.message.reply_text(

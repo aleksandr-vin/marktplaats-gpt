@@ -11,6 +11,7 @@ class UserDB:
                 CREATE TABLE IF NOT EXISTS user_settings (
                     id INTEGER PRIMARY KEY,
                     username TEXT,
+                    modified_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     setting_key TEXT,
                     setting_value TEXT,
                     UNIQUE(username, setting_key)
@@ -48,13 +49,13 @@ class UserDB:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT setting_key, setting_value FROM user_settings WHERE username=?",
+                "SELECT setting_key, setting_value, modified_time FROM user_settings WHERE username=?",
                 (username,)
             )
             rows = cursor.fetchall()
         
             for row in rows:
-                setting_key, setting_value = row
-                settings[setting_key] = setting_value
-    
+                setting_key, setting_value, modified_time = row
+                settings[setting_key] = {'value': setting_value, 'modified_time': modified_time}
+
         return settings
