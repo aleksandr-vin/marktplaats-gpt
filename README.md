@@ -42,13 +42,15 @@ OPENAI_ORG_ID=...
 
 ### Marktplaats authentication
 
-Is tricky, you'll need to open https://marktplaats.nl and log in, open Developer Tools > Network tab and right-click on any request to marktplaats.nl (after you log-in),
-choose Save as Curl. That will copy full request command (with cookies) to clip buffer.
+For now the only supported way is to steal cookies from the browser session. Find assistance from [header-hunter](https://github.com/aleksandr-vin/header-hunter).
+
+Open https://marktplaats.nl and log in, open Developer Tools > Network tab and right-click on any request to marktplaats.nl (after you log-in), choose Save as Curl.
+That will copy full request command (with cookies) to clip buffer.
 
 Run next command to extract cookies and place them in *.env*:
 
 ```
-python -m marktplaats_messages.cookie_awareness >> .env
+header-hunter > .env
 ```
 
 
@@ -123,3 +125,27 @@ TELEGRAM_TOKEN=.....
 ```
 
 Then, assuming you run `poetry install`, you can run `marktplaats-gpt-bot` and watch the logs in *marktplaats-gpt-bot.log*.
+
+You'll first need to make yourself an admin and activate yourself.
+
+### Becoming an admin
+
+Issue a `/activate` command to the bot and check logs, you should see something like:
+
+```
+2023-10-17 18:04:40,543 - root - WARNING - User User(first_name='Aleksandr', id=11223344, is_bot=False, language_code='en', last_name='Vinokurov', username='yourfriend') called /activate []
+```
+
+Copy the number from `id=........` key-value pair and place it to *.env* file with such line:
+
+```
+TELEGRAM_BOT_ADMIN_ID=........
+```
+
+Now restart the bot.
+
+### Activating yourself
+
+As an admin you can activate users by their telegram usernames. Repeat same last command but provide your username, like `/activate yourfriend`.
+
+For more admin commands see `/admin_help`.

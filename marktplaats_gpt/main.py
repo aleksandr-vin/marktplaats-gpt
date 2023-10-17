@@ -18,7 +18,7 @@ def load_context(filename):
     """
     Loads context for system role for OpenAI chat completion task.
     """
-    print(f"Loading context from {filename}...")
+    logging.info(f"Loading context from {filename}...")
     lines = []
 
     with open(filename, 'r') as file:

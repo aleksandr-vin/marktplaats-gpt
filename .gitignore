@@ -7,3 +7,4 @@ marktplaats-gpt*.log
 cache
 item.data
 context.txt
+users.db

@@ -15,56 +15,176 @@ import re
 import openai
 from marktplaats_gpt.main import load_context
 from marktplaats_gpt.scraping import load_item_data
-
+from marktplaats_gpt.user_session import UserSession
+from marktplaats_gpt.users_db import UserDB
 
 CONVERSATION_NUMBER_PATTERN = r' \((\d*)\)$'
 
 CONVERSATION, SUGGESTION = range(2)
-
-class UserSession:
-    def __init__(self, user_data):
-        self.user_data = user_data
-
-    def set_conversations(self, conversations):
-        self.user_data['conversations'] = conversations['_embedded']['mc:conversations']
-
-    def activate_conversation(self, i):
-        self.user_data['active_conversation'] = i
-        return self.user_data['conversations'][i]
-
-    def get_active_conversation(self):
-        i = self.user_data['active_conversation']
-        return self.user_data['conversations'][i]
-
-    def set_item_data(self, item_data):
-        self.user_data['item_data'] = item_data
-
-    def get_item_data(self):
-        return self.user_data['item_data']
-
-    def set_completion_messages(self, completion_messages):
-        self.user_data['completion_messages'] = completion_messages
-
-    def get_completion_messages(self):
-        return self.user_data['completion_messages']
-
-    def set_chatgpt_context(self, chatgpt_context):
-        self.user_data['chatgpt_context'] = chatgpt_context
-
-    def get_chatgpt_context(self):
-        if 'chatgpt_context' in self.user_data:
-            return self.user_data['chatgpt_context']
-        else:
-            return None
 
 
 def conversation_url(conversation_id):
     return f"https://www.marktplaats.nl/messages/{conversation_id}"
 
 
+def admin_id():
+    return int(os.environ.get("TELEGRAM_BOT_ADMIN_ID", "-1"))
+
+
+def is_admin(user):
+    return user.id == admin_id()
+
+
+async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Activates the user (username specified as first argument). Admin command."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /activate %s", user, context.args)
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    if len(context.args) == 1:
+        subject_user = context.args[0]
+        UserDB.set(subject_user, 'status', 'active')
+        logging.warn("User %s activated by %s", subject_user, user)
+        await update.message.reply_text(
+            f"User {subject_user} was activated!",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    await update.message.reply_text(
+        f"Unclear command",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+
+async def deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Deactivates the user (username specified as first argument). Admin command."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /deactivate %s", user, context.args)
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    if len(context.args) == 1:
+        subject_user = context.args[0]
+        old_user_status = UserDB.get(subject_user, 'status')
+        if old_user_status:
+            UserDB.set(subject_user, 'status', 'inactive')
+            logging.warn("User %s deactivated by %s (old status was %s)", subject_user, user, old_user_status)
+            await update.message.reply_text(
+                f"User {subject_user} was deactivated (old status was {old_user_status})!",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+        else:
+            logging.warn("Unknown status of user %s", subject_user)
+            await update.message.reply_text(
+                f"Unknown status for user {subject_user}!",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+        return
+
+    await update.message.reply_text(
+        f"Unclear command",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+
+async def user_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Shows settings of a user (username specified as first argument). Admin command."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /user_settings %s", user, context.args)
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    if len(context.args) == 1:
+        subject_user = context.args[0]
+        user_settings = UserDB.get_all(subject_user)
+        if user_settings:
+            settings_list = []
+            for k,v in user_settings.items():
+                settings_list.append(f"{k}: {v}")
+            logging.warn("Showing settings of user %s for %s", subject_user, user)
+            settings_section = "\n".join(settings_list)
+            await update.message.reply_text(
+                f"User {subject_user} settings:\n\n"
+                f"<pre>{settings_section}</pre>",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+        else:
+            logging.warn("No settings found for user %s", subject_user)
+            await update.message.reply_text(
+                f"No settings found for user {subject_user}!",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+        return
+
+    await update.message.reply_text(
+        f"Unclear command",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+
+    logging.warn("User %s called /admin_help %s", user, context.args)
+    
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_admin_help())
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the session, lists Marktplaats conversations and asks user which to pick up."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
 
     logging.info(f"Starting user session for {user}")
     session = UserSession(user_data=context.user_data)
@@ -134,6 +254,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Prints conversation and suggests a reply."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
 
     conversation_key_str = update.message.text
     logging.info("Conversation key string for %s is %s", user.id, conversation_key_str)
@@ -245,6 +373,14 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Asks ChatGPT for reply suggestion for active conversation and sends to the user."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
 
     if update.message.text != "Yes":
         logging.info("Not asking ChatGPT, as user %s replied %s", user.id, update.message.text)
@@ -305,6 +441,15 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
     logging.info("User %s canceled the conversation.", user.first_name)
     await update.message.reply_text(
         "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
@@ -316,6 +461,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def context(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reset context to new text or to default one, if none provided."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
     session = UserSession(user_data=context.user_data)
 
     if len(context.args) == 0:
@@ -334,7 +488,13 @@ async def context(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_help())
+    user = update.message.from_user
+
+    help_text = get_help()
+    if is_admin(user):
+        help_text += "/admin_help -- show admin help"
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,14 +502,28 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.\n\n" + get_help())
+    user = update.message.from_user
+
+    help_text = get_help()
+    if is_admin(user):
+        help_text += "/admin_help -- show admin help"
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.\n\n" + help_text)
 
 
 def get_help():
     return """Available commands:
-/start -- Start the session, by listing all conversations first, optional parameters are LIMIT and OFFSET
-/context -- Reset the ChatGPT context, provide a new text or leave blank to load default
-/help -- Show this help
+/start -- start the session, by listing all conversations first, optional parameters are LIMIT and OFFSET
+/context -- reset the ChatGPT context, provide a new text or leave blank to load default
+/help -- show this help
+"""
+
+def get_admin_help():
+    return """Admin commands:
+/activate {username} -- activate user by {username}
+/deactivate {username} -- deactivate user by {username}
+/user_settings {username} -- show settings for {username}
+/admin_help -- show this help
 """
 
 
@@ -366,9 +540,10 @@ def main():
     # Load environment variables from .env file
     load_dotenv()
 
+    UserDB.init_db()
+
     application = ApplicationBuilder().token(os.environ.get("TELEGRAM_TOKEN")).build()
 
-    # Add conversation handler with the states GENDER, PHOTO, LOCATION and BIO
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -378,14 +553,14 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    application.add_handler(CommandHandler('activate', activate))
+    application.add_handler(CommandHandler('deactivate', deactivate))
+    application.add_handler(CommandHandler('user_settings', user_settings))
     application.add_handler(conv_handler)
-
     application.add_handler(CommandHandler('context', context))
-
     application.add_handler(CommandHandler('help', help))
-
+    application.add_handler(CommandHandler('admin_help', admin_help))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
-
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     # Run the bot until the user presses Ctrl-C
