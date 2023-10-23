@@ -8,3 +8,4 @@ cache
 item.data
 context.txt
 users.db
+sessions.db

@@ -19,6 +19,7 @@ from marktplaats_gpt.main import load_context
 from marktplaats_gpt.scraping import load_item_data
 from marktplaats_gpt.user_session import UserSession
 from marktplaats_gpt.users_db import UserDB
+from marktplaats_gpt.sessions_db import SessionDB
 from marktplaats_gpt.version_info import version as the_version
 
 
@@ -37,6 +38,45 @@ def admin_id():
 
 def is_admin(user):
     return user.id == admin_id()
+
+
+async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Lists known users. Admin command."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /users %s", user, context.args)
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    
+    if len(context.args) == 1:
+        from_seconds = int(context.args[0])
+    else:
+        from_seconds = 3600*24 # last 24 hours
+
+    logging.warn("Getting sessions for last %d seconds", from_seconds)
+    sessions = SessionDB.get_all(from_seconds)
+    users_dict = {}
+    for k,v in sorted(sessions.items(), key=lambda x: x[1]['created_time'], reverse=False):
+        users_dict[v['username']] = v['created_time']
+    users_list = []
+    for k,v in sorted(users_dict.items(), key=lambda x: x[1], reverse=True):
+        users_list.append(f"{v} - {k}")
+    users_section = "\n".join(users_list)
+    await update.message.reply_text(
+        "Sessions:\n"
+        f"<pre>{users_section}</pre>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    return
 
 
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -226,6 +266,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     logging.info(f"Starting user session for {user}")
     session = UserSession(user_data=context.user_data)
+
+    SessionDB.create(user.username)
 
     limit = 5
     offset = 0
@@ -645,6 +687,7 @@ def get_admin_help():
 /deactivate {username} -- deactivate user by {username}
 /user_settings {username} -- show settings for {username}
 /load_cookie -- load cookie for bot's COOKIE env var into admin's settings
+/users ({seconds}) -- list users, active for last {seconds} (24 hours by default)
 /admin_help -- show this help
 """
 
@@ -666,6 +709,7 @@ def main():
     load_dotenv()
 
     UserDB.init_db()
+    SessionDB.init_db()
 
     application = ApplicationBuilder().token(os.environ.get("TELEGRAM_TOKEN")).build()
 
@@ -678,6 +722,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    application.add_handler(CommandHandler('users', users))
     application.add_handler(CommandHandler('activate', activate))
     application.add_handler(CommandHandler('deactivate', deactivate))
     application.add_handler(CommandHandler('user_settings', user_settings))
