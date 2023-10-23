@@ -77,6 +77,47 @@ def openai_cost(model: str, prompt_tokens: int, completion_tokens: int):
         raise NotImplementedError(f"Model's costs are unknown: {model}!!!")
 
 
+def users_openai_usage(username: str):
+    """Return user's OpenAI total usage in $$."""
+    sessions = SessionDB.get_all_for_user(username=username)
+    return sum(openai_cost(session['model'], session['prompt_tokens'], session['completion_tokens']) for session in sessions.values() if session['model'])
+
+
+async def set_quota(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set user's quota for OpenAI use, args: {username} {amount_in_$$$}. Admin command."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /set_quota %s", user, context.args)
+    if not is_admin(user):
+        logging.warn(f"Not an admin")
+        await update.message.reply_text(
+            f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    logging.warn(f"Is an admin")
+    
+    if len(context.args) == 2:
+        subject_user = context.args[0]
+        quota_amount_in_us_dollars = context.args[1]
+        UserDB.set(subject_user, 'openai-quota', f"{quota_amount_in_us_dollars}")
+        logging.warn("User %s quota is set to $%s by %s", subject_user, quota_amount_in_us_dollars, user)
+        await update.message.reply_text(
+            f"User {subject_user} quota set to ${quota_amount_in_us_dollars}!",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return
+
+    await update.message.reply_text(
+        f"Unclear command",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+
+
 async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Lists known users. Extended for Admin."""
     user = update.message.from_user
@@ -125,9 +166,12 @@ async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             session_attempts = [(openai_cost(m, pt, ct), pt,ct,) for t,pt,ct,m in sessions_stack[username]]
             session_costs = sum(c[0] for c in session_attempts)
             session_tokens = [(c[1],c[2]) for c in session_attempts]
-            session_end = sessions_stack[username][-1][0]
             session_start = v['created_time']
-            session_end_and_delta = time_end_and_delta(session_start, session_end)
+            if sessions_stack[username]:
+                session_end = sessions_stack[username][-1][0]
+                session_end_and_delta = time_end_and_delta(session_start, session_end)
+            else:
+                session_end_and_delta = "                   "
             if im_an_admin:
                 sessions_list.append(f"{username} - {session_start} - {session_end_and_delta} : ${session_costs} => {session_tokens}")
             else:
@@ -592,6 +636,28 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
 
+    quota = UserDB.get(user.username, 'openai-quota')
+    if not quota:
+        await update.message.reply_text(
+            f"No OpenAI quota defined for you, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    else:
+        quota_amount_in_us_dollars = float(quota)
+    
+    current_usage = users_openai_usage(user.username)
+    logging.info("User OpenAI quota is $%s, and $%s is already used", current_usage, quota_amount_in_us_dollars)
+    
+    if users_openai_usage(user.username) >= quota_amount_in_us_dollars:
+        await update.message.reply_text(
+            f"You exceeded your OpenAI quota, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
     session = UserSession(user_data=context.user_data)
     conv = session.get_active_conversation()
     logging.info('Active conv %s', conv)
@@ -686,6 +752,40 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
     )
 
+    return ConversationHandler.END
+
+
+async def quota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Returns current user's quota."""
+    user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+
+    quota = UserDB.get(user.username, 'openai-quota')
+    if not quota:
+        await update.message.reply_text(
+            f"No OpenAI quota defined for you, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    else:
+        quota_amount_in_us_dollars = float(quota)
+    
+    current_usage = users_openai_usage(user.username)
+    logging.info("User OpenAI quota is $%s, and $%s is already used", current_usage, quota_amount_in_us_dollars)
+
+    await update.message.reply_text(
+        f"Your OpenAI quota is ${quota_amount_in_us_dollars}",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
     return ConversationHandler.END
 
 
@@ -808,6 +908,7 @@ def get_admin_help():
 /users ({seconds}) -- list users, active for last {seconds} (24 hours by default)
 /last {username} -- list sessions of {username}, showing OpenAI costs and tokens per request
 /last -- list all sessions for the last week, showing OpenAI costs and tokens per request
+/set_quota {username} {amount} -- set $$$ quota for OpenAI use for {username}
 /admin_help -- show this help
 """
 
@@ -844,6 +945,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    application.add_handler(CommandHandler('set_quota', set_quota))
     application.add_handler(CommandHandler('last', last))
     application.add_handler(CommandHandler('users', users))
     application.add_handler(CommandHandler('activate', activate))
@@ -851,6 +953,7 @@ def main():
     application.add_handler(CommandHandler('user_settings', user_settings))
     application.add_handler(CommandHandler('load_cookie', load_cookie))
     application.add_handler(conv_handler)
+    application.add_handler(CommandHandler('quota', quota))
     application.add_handler(CommandHandler('context', context))
     application.add_handler(CommandHandler('reset_cookie', reset_cookie))
     application.add_handler(CommandHandler('help', help))
