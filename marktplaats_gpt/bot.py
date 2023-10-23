@@ -21,6 +21,7 @@ from marktplaats_gpt.user_session import UserSession
 from marktplaats_gpt.users_db import UserDB
 from marktplaats_gpt.sessions_db import SessionDB
 from marktplaats_gpt.version_info import version as the_version
+from datetime import datetime
 
 
 CONVERSATION_NUMBER_PATTERN = r' \((\d*)\)$'
@@ -38,6 +39,108 @@ def admin_id():
 
 def is_admin(user):
     return user.id == admin_id()
+
+
+def time_end_and_delta(str1, str2):
+    """Return hh:mm:ss of the session end (str2) + duration in (d+)hh:mm:ss, like Unix `last` command."""
+    time_format = "%Y-%m-%d %H:%M:%S"
+    dt1 = datetime.strptime(str1, time_format)
+    dt2 = datetime.strptime(str2, time_format)
+    
+    delta = abs(dt2 - dt1)
+    
+    # Extract days, hours, minutes, and seconds
+    days = delta.days
+    hours, remainder = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    hours_str2 = dt2.hour
+    minutes_str2 = dt2.minute
+    seconds_str2 = dt2.second
+    
+    # Format the result
+    if days != 0:
+        return f"{hours_str2:02}:{minutes_str2:02}:{seconds_str2:02} ({days}d+{hours:02}:{minutes:02}:{seconds:02})"
+    else:
+        return f"{hours_str2:02}:{minutes_str2:02}:{seconds_str2:02} ({hours:02}:{minutes:02}:{seconds:02})"
+
+
+def openai_cost(model: str, prompt_tokens: int, completion_tokens: int):
+    """
+    Return estimated cost of OpenAI completion, based on prices at https://openai.com/pricing as of 2023-10-23.
+
+    See https://platform.openai.com/docs/models/continuous-model-upgrades for models status.
+    """
+    if model == "gpt-4-0613": # 8K context	$0.03 / 1K tokens	$0.06 / 1K tokens
+        return (0.03 * prompt_tokens ) / 1000.0 + (0.06 * completion_tokens) / 1000.0
+    else:
+        raise NotImplementedError(f"Model's costs are unknown: {model}!!!")
+
+
+async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Lists known users. Extended for Admin."""
+    user = update.message.from_user
+
+    logging.warn("User %s called /last %s", user, context.args)
+
+    replay_details = ""
+    
+    if len(context.args) == 1:
+        if not is_admin(user):
+            logging.warn(f"Not an admin")
+            await update.message.reply_text(
+                f"Nice try, talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='HTML'
+            )
+            return
+        im_an_admin = True
+        logging.warn(f"Is an admin")
+        subject_user = context.args[0]
+        logging.warn("Getting sessions for %s", subject_user)
+        sessions = SessionDB.get_all_for_user(username=subject_user)
+    else:
+        if not is_admin(user):
+            im_an_admin = False
+            logging.warn(f"Not an admin")
+            logging.warn("Getting sessions for self", user.username)
+            sessions = SessionDB.get_all_for_user(username=user.username)
+        else:
+            im_an_admin = True
+            logging.warn(f"Is an admin")
+            from_seconds = 3600*24*7 # last week
+            replay_details = f" for last {from_seconds} seconds"
+            logging.warn("Getting sessions for all users for last %d seconds", from_seconds)
+            sessions = SessionDB.get_all(from_seconds)
+
+    sessions_list = []
+    sessions_stack = {}
+    for k,v in sorted(sessions.items(), key=lambda x: x[1]['created_time'], reverse=True):
+        username = v['username']
+        if v['model']:
+            if username not in sessions_stack:
+                sessions_stack[username] = []
+            sessions_stack[username].append((v['created_time'], v['prompt_tokens'], v['completion_tokens'], v['model']))
+        else:
+            session_attempts = [(openai_cost(m, pt, ct), pt,ct,) for t,pt,ct,m in sessions_stack[username]]
+            session_costs = sum(c[0] for c in session_attempts)
+            session_tokens = [(c[1],c[2]) for c in session_attempts]
+            session_end = sessions_stack[username][-1][0]
+            session_start = v['created_time']
+            session_end_and_delta = time_end_and_delta(session_start, session_end)
+            if im_an_admin:
+                sessions_list.append(f"{username} - {session_start} - {session_end_and_delta} : ${session_costs} => {session_tokens}")
+            else:
+                sessions_list.append(f"{username} - {session_start} - {session_end_and_delta}")
+            sessions_stack[username] = []
+    sessions_section = "\n".join(sessions_list)
+    await update.message.reply_text(
+        f"Sessions{replay_details}:\n"
+        f"<pre>{sessions_section}</pre>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    return
 
 
 async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -64,14 +167,21 @@ async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logging.warn("Getting sessions for last %d seconds", from_seconds)
     sessions = SessionDB.get_all(from_seconds)
     users_dict = {}
+    user_sessions = {}
     for k,v in sorted(sessions.items(), key=lambda x: x[1]['created_time'], reverse=False):
-        users_dict[v['username']] = v['created_time']
+        username = v['username']
+        users_dict[username] = v['created_time']
+        if v['model']:
+            if username not in user_sessions:
+                user_sessions[username] = []
+            user_sessions[username].append(v)
     users_list = []
-    for k,v in sorted(users_dict.items(), key=lambda x: x[1], reverse=True):
-        users_list.append(f"{v} - {k}")
+    for username, last_session_time in sorted(users_dict.items(), key=lambda x: x[1], reverse=True):
+        user_costs_for_period = sum(openai_cost(session['model'], session['prompt_tokens'], session['completion_tokens']) for session in user_sessions[username])
+        users_list.append(f"{last_session_time} - {username} - ${user_costs_for_period}")
     users_section = "\n".join(users_list)
     await update.message.reply_text(
-        "Sessions:\n"
+        f"Sessions for last {from_seconds} seconds:\n"
         f"<pre>{users_section}</pre>",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode='HTML'
@@ -529,6 +639,13 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     completion = openai.ChatCompletion.create(model=openai_model, messages=completion_messages)
     logging.debug("Usage: %s", completion.usage)
     logging.debug("Choice: %s", completion.choices[0].message.content)
+    SessionDB.use(
+        username=user.username,
+        model=completion.model,
+        prompt_tokens=completion.usage.prompt_tokens,
+        completion_tokens=completion.usage.completion_tokens
+    )
+    logging.info(f">>>>>>>>> {completion.id}")
     completion = completion.choices[0].message.content
     await update.message.reply_text(
         f"<i>Suggested answer:</i>\n",
@@ -678,6 +795,7 @@ def get_help():
 /start -- start the session, by listing all conversations first, optional parameters are LIMIT and OFFSET
 /reset_cookie -- set your marktplaats.nl cookie (can parse the result of "Copy as cURL" browser command) or delete current one if nothing is provided
 /context -- reset the ChatGPT context, provide a new text or leave blank to load default
+/last -- list user's sessions
 /help -- show this help
 """
 
@@ -688,6 +806,8 @@ def get_admin_help():
 /user_settings {username} -- show settings for {username}
 /load_cookie -- load cookie for bot's COOKIE env var into admin's settings
 /users ({seconds}) -- list users, active for last {seconds} (24 hours by default)
+/last {username} -- list sessions of {username}, showing OpenAI costs and tokens per request
+/last -- list all sessions for the last week, showing OpenAI costs and tokens per request
 /admin_help -- show this help
 """
 
@@ -697,13 +817,15 @@ def main():
 
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO,
+        level=logging.DEBUG,
         filename='marktplaats-gpt-bot.log',
         filemode='a'
     )
 
     # set higher logging level for httpx to avoid all GET and POST requests being logged
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.INFO)
+    logging.getLogger("httpcore").setLevel(logging.INFO)
 
     # Load environment variables from .env file
     load_dotenv()
@@ -722,6 +844,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    application.add_handler(CommandHandler('last', last))
     application.add_handler(CommandHandler('users', users))
     application.add_handler(CommandHandler('activate', activate))
     application.add_handler(CommandHandler('deactivate', deactivate))
