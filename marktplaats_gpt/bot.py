@@ -364,7 +364,8 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         f"Loading conversation with <b>{peer['name']}</b>\n"
         f"<a href=\"{conv_url}\">{conv_url}</a>\n",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode='HTML'
+        parse_mode='HTML',
+        disable_web_page_preview=True
     )
 
     completion_messages=[]
@@ -421,7 +422,8 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             "Last message was not from peer. No suggestions will be given for this conversation.\n"
             f"<a href=\"{conv_url}\">{conv_url}</a>\n",
             reply_markup=ReplyKeyboardRemove(),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            disable_web_page_preview=True
         )
         return ConversationHandler.END
 
@@ -450,7 +452,8 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"You can open conversation here:\n"
             f"<a href=\"{conv_url}\">{conv_url}</a>\n",
             reply_markup=ReplyKeyboardRemove(),
-            parse_mode='HTML'
+            parse_mode='HTML',
+            disable_web_page_preview=True
         )
         return ConversationHandler.END
 
