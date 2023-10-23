@@ -28,7 +28,7 @@ CONVERSATION, SUGGESTION = range(2)
 
 
 def conversation_url(conversation_id):
-    return f"https://www.marktplaats.nl/messages/{conversation_id}"
+    return f"https://www.marktplaats.nl/link/messages/{conversation_id}" # using '/link' makes it a Universal Link, see https://www.marktplaats.nl/.well-known/apple-app-site-association
 
 
 def admin_id():
@@ -379,7 +379,7 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             author = peer['name']
             role = "user"
         else:
-            author = m['senderId']
+            author = 'You' # m['senderId']
             role = "assistant"
         if m['isRead']:
             read_status = '- '
@@ -406,7 +406,7 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     reply_keyboard = [["Yes", "No"]]
 
-    if last_message['senderId'] == peer['id'] or args.conversation_continue:
+    if last_message['senderId'] == peer['id']:
         await update.message.reply_text(
             "<i>Asking ChatGPT?</i>",
             reply_markup=ReplyKeyboardMarkup(
@@ -416,8 +416,10 @@ async def conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return SUGGESTION
     else:
+        conv_url = conversation_url(conversation_id)
         await update.message.reply_text(
-            "Last message was not from peer. No suggestions will be given for this conversation.",
+            "Last message was not from peer. No suggestions will be given for this conversation.\n"
+            f"<a href=\"{conv_url}\">{conv_url}</a>\n",
             reply_markup=ReplyKeyboardRemove(),
             parse_mode='HTML'
         )
@@ -436,14 +438,21 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
 
-    if update.message.text != "Yes":
-        logging.info("Not asking ChatGPT, as user %s replied %s", user.id, update.message.text)
-        return ConversationHandler.END
-
     session = UserSession(user_data=context.user_data)
     conv = session.get_active_conversation()
     logging.info('Active conv %s', conv)
     conversation_id = conv['id']
+
+    if update.message.text != "Yes":
+        logging.info("Not asking ChatGPT, as user %s replied %s", user.id, update.message.text)
+        conv_url = conversation_url(conversation_id)
+        await update.message.reply_text(
+            f"You can open conversation here:\n"
+            f"<a href=\"{conv_url}\">{conv_url}</a>\n",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
 
     item_data = session.get_item_data()
     chatgpt_context = UserDB.get(user.username, 'chat-context')
@@ -451,8 +460,16 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         chatgpt_context = load_context("chat-context")
     context = chatgpt_context + "\n" + item_data
     await update.message.reply_text(
-        "<i>This will be the context for ChatGPT request:</i>\n"
-        f"<pre>{context}</pre>\n\n"
+        "<i>This will be the context for ChatGPT request:</i>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    await update.message.reply_text(
+        f"<pre>{context}</pre>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='HTML'
+    )
+    await update.message.reply_text(
         "<i>Waiting for ChatGPT answer</i>",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode='HTML'
@@ -488,8 +505,6 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         parse_mode='HTML'
     )
     return SUGGESTION
-
-    return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
