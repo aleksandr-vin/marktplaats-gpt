@@ -121,6 +121,14 @@ async def set_quota(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Lists known users. Extended for Admin."""
     user = update.message.from_user
+    user_status = UserDB.get(user.username, 'status')
+    if user_status != 'active':
+        await update.message.reply_text(
+            f"You are not known for me, please talk to <a href='tg://user?id={admin_id()}'>admin</a>",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
 
     logging.warn("User %s called /last %s", user, context.args)
 
