@@ -163,19 +163,21 @@ async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 sessions_stack[username] = []
             sessions_stack[username].append((v['created_time'], v['prompt_tokens'], v['completion_tokens'], v['model']))
         else:
+            session_line = ""
             session_attempts = [(openai_cost(m, pt, ct), pt,ct,) for t,pt,ct,m in sessions_stack[username]]
             session_costs = sum(c[0] for c in session_attempts)
             session_tokens = [(c[1],c[2]) for c in session_attempts]
             session_start = v['created_time']
+            session_line += f"{username} - {session_start}"
             if sessions_stack[username]:
                 session_end = sessions_stack[username][-1][0]
-                session_end_and_delta = time_end_and_delta(session_start, session_end)
-            else:
-                session_end_and_delta = "                   "
+                session_line += f" - {time_end_and_delta(session_start, session_end)}"
             if im_an_admin:
-                sessions_list.append(f"{username} - {session_start} - {session_end_and_delta} : ${session_costs} => {session_tokens}")
-            else:
-                sessions_list.append(f"{username} - {session_start} - {session_end_and_delta}")
+                if session_costs != 0:
+                    session_line += f" : ${session_costs}"
+                if len(session_tokens) != 0:
+                    session_line += f" => {session_tokens}"
+            sessions_list.append(session_line)
             sessions_stack[username] = []
     sessions_section = "\n".join(sessions_list)
     await update.message.reply_text(
@@ -705,13 +707,13 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     completion = openai.ChatCompletion.create(model=openai_model, messages=completion_messages)
     logging.debug("Usage: %s", completion.usage)
     logging.debug("Choice: %s", completion.choices[0].message.content)
+    logging.info("Completion id: %s", completion.id)
     SessionDB.use(
         username=user.username,
         model=completion.model,
         prompt_tokens=completion.usage.prompt_tokens,
         completion_tokens=completion.usage.completion_tokens
     )
-    logging.info(f">>>>>>>>> {completion.id}")
     completion = completion.choices[0].message.content
     await update.message.reply_text(
         f"<i>Suggested answer:</i>\n",

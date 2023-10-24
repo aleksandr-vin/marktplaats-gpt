@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "marktplaats-gpt"
-version = "0.3.1"
+version = "0.3.2"
 description = "ChatGPT for conversations in Marktplaats, with Telegram Bot"
 authors = [
   "Aleksandr Vinokurov <aleksandr.vin@gmail.com>"
