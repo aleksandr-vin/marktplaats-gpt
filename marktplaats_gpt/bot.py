@@ -170,7 +170,7 @@ async def last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             if username not in sessions_stack:
                 sessions_stack[username] = []
             sessions_stack[username].append((v['created_time'], v['prompt_tokens'], v['completion_tokens'], v['model']))
-        else:
+        elif username in sessions_stack:
             session_line = ""
             session_attempts = [(openai_cost(m, pt, ct), pt,ct,) for t,pt,ct,m in sessions_stack[username]]
             session_costs = sum(c[0] for c in session_attempts)
@@ -229,10 +229,15 @@ async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             if username not in user_sessions:
                 user_sessions[username] = []
             user_sessions[username].append(v)
+    logging.info(f"sessions: {sessions}")
+    logging.info(f"user_sessions: {user_sessions}")
     users_list = []
     for username, last_session_time in sorted(users_dict.items(), key=lambda x: x[1], reverse=True):
-        user_costs_for_period = sum(openai_cost(session['model'], session['prompt_tokens'], session['completion_tokens']) for session in user_sessions[username])
-        users_list.append(f"{last_session_time} - {username} - ${user_costs_for_period}")
+        if username in user_sessions:
+            user_costs_for_period = sum(openai_cost(session['model'], session['prompt_tokens'], session['completion_tokens']) for session in user_sessions[username])
+            users_list.append(f"{last_session_time} - {username} - ${user_costs_for_period}")
+        else:
+            users_list.append(f"{last_session_time} - {username}")
     users_section = "\n".join(users_list)
     await update.message.reply_text(
         f"Sessions for last {from_seconds} seconds:\n"
