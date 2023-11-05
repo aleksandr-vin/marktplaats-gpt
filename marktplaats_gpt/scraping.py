@@ -28,7 +28,16 @@ def load_item_data(item_id):
                     "price": j['offers']['price'],
                     "priceCurrency": j['offers']['priceCurrency'],
                 }
-                logging.info("Item %s (%s) data: %s", item_id, url, product)
+                logging.info("Item %s (%s) data from (application/ld+json): %s", item_id, url, product)
+
+                description_div = soup.find('div', class_='Description-description', attrs={"data-collapsable": "description"})
+                if description_div:
+                    description_text = description_div.get_text(separator=' ', strip=True)
+                    product["description"] = description_text
+                    logging.info("Item %s (%s) data from (application/ld+json and div with 'Description-description' class): %s", item_id, url, product)
+                else:
+                    logging.error("The desired div with class 'Description-description' was not found.")
+
                 return json.dumps(product), url
         except e:
             logging.error(e)
