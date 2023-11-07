@@ -71,7 +71,9 @@ def openai_cost(model: str, prompt_tokens: int, completion_tokens: int):
 
     See https://platform.openai.com/docs/models/continuous-model-upgrades for models status.
     """
-    if model == "gpt-4-0613": # 8K context	$0.03 / 1K tokens	$0.06 / 1K tokens
+    if model == "gpt-4-1106-preview": # 128k context	$0.01 / 1K tokens	$0.03 / 1K tokens
+        return (0.01 * prompt_tokens ) / 1000.0 + (0.03 * completion_tokens) / 1000.0
+    elif model == "gpt-4-0613": # 8K context	$0.03 / 1K tokens	$0.06 / 1K tokens
         return (0.03 * prompt_tokens ) / 1000.0 + (0.06 * completion_tokens) / 1000.0
     else:
         raise NotImplementedError(f"Model's costs are unknown: {model}!!!")
@@ -715,7 +717,7 @@ async def suggestion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     openai.organization = os.environ.get("OPENAI_ORG_ID")
     openai.api_key = os.environ.get("OPENAI_API_KEY")
-    openai_model = os.environ.get("OPENAI_MODEL", "gpt-4")
+    openai_model = os.environ.get("OPENAI_MODEL", "gpt-4-1106-preview")
     logging.debug("About to ask ChatGPT %s model for completion to %s", openai_model, completion_messages)
     completion = openai.ChatCompletion.create(model=openai_model, messages=completion_messages)
     logging.debug("Usage: %s", completion.usage)
